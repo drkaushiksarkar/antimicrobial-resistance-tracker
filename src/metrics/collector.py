@@ -16,56 +16,69 @@ class MetricPoint:
     tags: Dict[str, str] = field(default_factory=dict)
 
 
-class AntimicrobialResistanceTrackerMetrics:
-    """Collect, aggregate, and report metrics for antimicrobial-resistance-tracker operations."""
+class DataQualityMetrics:
+    """Collect, aggregate, and report data quality metrics."""
 
     def __init__(self, namespace: str = "antimicrobial-resistance-tracker"):
         self.namespace = namespace
-        self._metrics: Dict[str, List[float]] = defaultdict(list)
-        self._counters: Dict[str, int] = defaultdict(int)
-        self._timers: Dict[str, float] = {}
+        self._completeness: Dict[str, List[float]] = defaultdict(list)
+        self._consistency: Dict[str, List[float]] = defaultdict(list)
+        self._timeliness: Dict[str, List[float]] = defaultdict(list)
+        self._accuracy: Dict[str, List[float]] = defaultdict(list)
         self._start_time = time.time()
 
-    def record(self, name: str, value: float, tags: Optional[Dict[str, str]] = None):
-        self._metrics[name].append(value)
+    def record_completeness(self, data_source: str, value: float):
+        self._completeness[data_source].append(value)
 
-    def increment(self, name: str, amount: int = 1):
-        self._counters[name] += amount
+    def record_consistency(self, data_source: str, value: float):
+        self._consistency[data_source].append(value)
 
-    def start_timer(self, name: str):
-        self._timers[name] = time.time()
+    def record_timeliness(self, data_source: str, value: float):
+        self._timeliness[data_source].append(value)
 
-    def stop_timer(self, name: str) -> float:
-        if name not in self._timers:
-            return 0.0
-        elapsed = time.time() - self._timers.pop(name)
-        self.record(f"{name}_duration_seconds", elapsed)
-        return elapsed
+    def record_accuracy(self, data_source: str, value: float):
+        self._accuracy[data_source].append(value)
 
-    def get_summary(self) -> Dict[str, Any]:
+    def get_quality_summary(self) -> Dict[str, Any]:
         summary = {
             "namespace": self.namespace,
             "uptime_seconds": time.time() - self._start_time,
-            "counters": dict(self._counters),
-            "gauges": {},
+            "data_sources": {},
         }
-        for name, values in self._metrics.items():
-            if values:
-                sorted_v = sorted(values)
-                n = len(sorted_v)
-                summary["gauges"][name] = {
-                    "count": n,
-                    "mean": sum(sorted_v) / n,
-                    "min": sorted_v[0],
-                    "max": sorted_v[-1],
-                    "p50": sorted_v[n // 2],
-                    "p95": sorted_v[int(n * 0.95)] if n > 1 else sorted_v[0],
-                    "p99": sorted_v[int(n * 0.99)] if n > 1 else sorted_v[0],
-                }
+
+        for data_source in set(list(self._completeness.keys()) + list(self._consistency.keys()) + list(self._timeliness.keys()) + list(self._accuracy.keys())):
+            completeness_values = self._completeness[data_source] if data_source in self._completeness else []
+            consistency_values = self._consistency[data_source] if data_source in self._consistency else []
+            timeliness_values = self._timeliness[data_source] if data_source in self._timeliness else []
+            accuracy_values = self._accuracy[data_source] if data_source in self._accuracy else []
+
+            completeness_score = self._calculate_dimension_score(completeness_values)
+            consistency_score = self._calculate_dimension_score(consistency_values)
+            timeliness_score = self._calculate_dimension_score(timeliness_values)
+            accuracy_score = self._calculate_dimension_score(accuracy_values)
+
+            overall_score = (completeness_score + consistency_score + timeliness_score + accuracy_score) / 4
+
+            summary["data_sources"][data_source] = {
+                "completeness": completeness_score,
+                "consistency": consistency_score,
+                "timeliness": timeliness_score,
+                "accuracy": accuracy_score,
+                "overall_score": overall_score,
+            }
+
         return summary
 
+    def _calculate_dimension_score(self, values: List[float]) -> float:
+        """Calculates a score (0-100) for a given dimension."""
+        if not values:
+            return 0.0
+        average = sum(values) / len(values)
+        return max(0.0, min(100.0, average))  # Ensure score is between 0 and 100
+
     def reset(self):
-        self._metrics.clear()
-        self._counters.clear()
-        self._timers.clear()
+        self._completeness.clear()
+        self._consistency.clear()
+        self._timeliness.clear()
+        self._accuracy.clear()
         self._start_time = time.time()
